@@ -1,0 +1,40 @@
+# YouTube → Telegram 자동 요약 봇 설정 파일
+
+# YouTube 모니터링 설정
+youtube:
+  channels:
+    - id: "UCOB62fKRT7b73X7tRxMuN2g"
+      name: "경제전파사 김경필"
+    - id: "UCxvdCnvGODDyuvnELnLkQWw"
+      name: "효소아카데미"
+    - id: "UCJNK93wrXOA6YP4uBZ5I4Rw"
+      name: "J UTOPIA"
+  max_results: 5  # 채널당 최신 영상 조회 개수
+
+# 스케줄러 설정
+schedule:
+  interval_minutes: 30  # 체크 주기 (분)
+
+# 텔레그램 설정
+telegram:
+  chat_id: 6221328867
+
+# 자막 설정
+transcript:
+  preferred_languages:
+    - "ko"
+    - "en"
+
+# 요약 설정
+summarizer:
+  model: "claude-sonnet-4-20250514"
+  max_tokens: 1024
+
+# 로깅 설정
+logging:
+  level: "INFO"
+  file: "logs/bot.log"
+
+# 데이터 저장 경로
+data:
+  processed_videos: "data/processed_videos.json"
