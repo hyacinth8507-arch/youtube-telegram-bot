@@ -105,7 +105,8 @@ def run_pipeline(config: dict) -> None:
     # 설정 값 추출
     channels = config.get("youtube", {}).get("channels", [])
     max_results = config.get("youtube", {}).get("max_results", 5)
-    chat_id = config.get("telegram", {}).get("chat_id", "")
+    # 환경변수 TELEGRAM_CHAT_ID가 있으면 우선 사용 (GitHub Secrets 지원)
+    chat_id = os.getenv("TELEGRAM_CHAT_ID") or config.get("telegram", {}).get("chat_id", "")
     preferred_langs = config.get("transcript", {}).get(
         "preferred_languages", ["ko", "en"]
     )
