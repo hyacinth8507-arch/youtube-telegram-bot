@@ -2,9 +2,12 @@
 summarizer.py - AI 요약 + 전체 스크립트 정리 모듈
 
 Anthropic Claude API를 사용하여:
-1. 자막 텍스트를 3줄 핵심 요약
+1. 텍스트를 3줄 핵심 요약
 2. 주요 키워드 추출
-3. 전체 스크립트를 소제목/강조/문단 정리하여 반환
+3. 전체 내용을 소제목/강조/문단 정리하여 반환
+
+source_type에 따라 YouTube 영상 스크립트 또는 블로그 글에 맞는
+프롬프트를 사용한다.
 """
 
 import logging
@@ -14,30 +17,48 @@ import anthropic
 
 logger = logging.getLogger(__name__)
 
-# Claude 시스템 프롬프트
-SYSTEM_PROMPT = (
-    "당신은 YouTube 영상 스크립트를 전문적으로 정리하는 편집자입니다. "
-    "원문의 의미와 뉘앙스를 절대 훼손하지 않으면서, 읽기 쉽게 형식을 정리합니다."
-)
+# Claude 시스템 프롬프트 (소스 타입별)
+SYSTEM_PROMPTS = {
+    "youtube": (
+        "당신은 YouTube 영상 스크립트를 전문적으로 정리하는 편집자입니다. "
+        "원문의 의미와 뉘앙스를 절대 훼손하지 않으면서, 읽기 쉽게 형식을 정리합니다."
+    ),
+    "blog": (
+        "당신은 경제/금융 분야 블로그 글을 전문적으로 정리하는 편집자입니다. "
+        "원문의 분석과 논점을 정확히 유지하면서, 읽기 쉽게 형식을 정리합니다."
+    ),
+}
 
 
-def build_prompt(transcript: str) -> str:
+def build_prompt(text: str, source_type: str = "youtube") -> str:
     """Claude에 전달할 프롬프트를 생성한다.
 
+    source_type에 따라 YouTube 영상 스크립트 또는 블로그 글에
+    맞는 프롬프트를 생성한다.
+
     Args:
-        transcript: 자막 텍스트
+        text: 자막 텍스트 또는 블로그 본문
+        source_type: "youtube" 또는 "blog"
 
     Returns:
         프롬프트 문자열
     """
     # 1만자 이상이면 축약 허용 지시 추가
     length_note = ""
-    if len(transcript) > 10000:
+    if len(text) > 10000:
         length_note = (
-            "\n- 스크립트가 매우 깁니다. 각 소제목 아래 핵심 내용 위주로 "
+            "\n- 글이 매우 깁니다. 각 소제목 아래 핵심 내용 위주로 "
             "적절히 축약하되, 최대한 원문을 유지하세요."
         )
 
+    if source_type == "blog":
+        return _build_blog_prompt(text, length_note)
+    else:
+        return _build_youtube_prompt(text, length_note)
+
+
+def _build_youtube_prompt(transcript: str, length_note: str) -> str:
+    """YouTube 영상용 프롬프트를 생성한다."""
     return f"""다음은 YouTube 영상의 자막 스크립트입니다.
 아래 3가지 작업을 수행해주세요.
 
@@ -73,6 +94,44 @@ def build_prompt(transcript: str) -> str:
 
 ---
 {transcript}"""
+
+
+def _build_blog_prompt(blog_text: str, length_note: str) -> str:
+    """네이버 블로그 글용 프롬프트를 생성한다."""
+    return f"""다음은 경제/금융 블로그의 글입니다.
+아래 3가지 작업을 수행해주세요.
+
+[작업 1] 핵심 요약
+- 글의 핵심 논점과 결론을 정확히 3줄로 요약 (각 줄은 한 문장)
+
+[작업 2] 키워드
+- 주요 키워드를 5개 이내로 추출
+
+[작업 3] 전체 글 정리
+- 원문의 분석과 논점은 절대 바꾸지 않되, 형식만 정리
+- 주제가 바뀌는 부분마다 소제목을 삽입 (형식: ▶ 소제목)
+- 핵심 문장이나 주요 수치/데이터는 <b>굵은 글씨</b>로 강조 (HTML b 태그 사용)
+- 문단을 적절히 나누고 문장 부호 정리
+- 원문의 의미나 뉘앙스는 훼손하지 말 것
+- 텍스트 내의 & < > 문자는 &amp; &lt; &gt; 로 이스케이프하되, <b>와 </b> 태그는 그대로 유지{length_note}
+
+반드시 아래 구분자 형식으로 응답해주세요 (구분자 줄은 정확히 지켜주세요):
+
+===SUMMARY===
+요약 첫째 줄
+요약 둘째 줄
+요약 셋째 줄
+===KEYWORDS===
+키워드1, 키워드2, 키워드3, 키워드4, 키워드5
+===FORMATTED===
+▶ 소제목1
+정리된 내용...
+
+▶ 소제목2
+정리된 내용...
+
+---
+{blog_text}"""
 
 
 def parse_response(response_text: str) -> dict:
@@ -133,26 +192,29 @@ def parse_response(response_text: str) -> dict:
 
 
 def summarize(
-    transcript: str,
+    text: str,
     api_key: str,
     model: str = "claude-sonnet-4-20250514",
     max_tokens: int = 16000,
+    source_type: str = "youtube",
 ) -> dict:
-    """자막 텍스트를 Claude API로 요약 + 전체 스크립트 정리한다.
+    """텍스트를 Claude API로 요약 + 전체 내용 정리한다.
 
     Rate limit(429) 발생 시 지수 백오프로 최대 3회 재시도한다.
 
     Args:
-        transcript: 자막 텍스트
+        text: 자막 텍스트 또는 블로그 본문
         api_key: Anthropic API 키
         model: 사용할 Claude 모델명
         max_tokens: 최대 응답 토큰 수
+        source_type: "youtube" 또는 "blog"
 
     Returns:
         {"summary": str, "keywords": list[str], "formatted_script": str}
     """
     client = anthropic.Anthropic(api_key=api_key)
-    prompt = build_prompt(transcript)
+    prompt = build_prompt(text, source_type)
+    system_prompt = SYSTEM_PROMPTS.get(source_type, SYSTEM_PROMPTS["youtube"])
 
     max_retries = 3
 
@@ -161,7 +223,7 @@ def summarize(
             message = client.messages.create(
                 model=model,
                 max_tokens=max_tokens,
-                system=SYSTEM_PROMPT,
+                system=system_prompt,
                 messages=[{"role": "user", "content": prompt}],
             )
 

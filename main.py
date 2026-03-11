@@ -17,8 +17,14 @@ import schedule
 import yaml
 from dotenv import load_dotenv
 
+from naver_monitor import (
+    filter_new_posts,
+    get_latest_posts,
+    mark_as_processed as mark_blog_processed,
+)
+from naver_scraper import get_blog_text
 from summarizer import summarize
-from telegram_sender import send_summary
+from telegram_sender import send_blog_summary, send_summary
 from transcript import get_transcript
 from youtube_monitor import filter_new_videos, get_latest_videos, mark_as_processed
 
@@ -181,7 +187,111 @@ def run_pipeline(config: dict) -> None:
                 logger.error(f"영상 처리 중 예외 발생 ({video_id}): {e}")
                 continue
 
+    # ===== 네이버 블로그 파이프라인 =====
+    naver_config = config.get("naver_blog", {})
+    if naver_config.get("enabled", False):
+        _run_blog_pipeline(
+            config=config,
+            blogs=naver_config.get("blogs", []),
+            anthropic_api_key=anthropic_api_key,
+            telegram_bot_token=telegram_bot_token,
+            chat_id=chat_id,
+            summarizer_model=summarizer_model,
+            summarizer_max_tokens=summarizer_max_tokens,
+        )
+
     logger.info("===== 파이프라인 실행 완료 =====")
+
+
+def _run_blog_pipeline(
+    config: dict,
+    blogs: list[dict],
+    anthropic_api_key: str,
+    telegram_bot_token: str,
+    chat_id: str,
+    summarizer_model: str,
+    summarizer_max_tokens: int,
+) -> None:
+    """네이버 블로그 파이프라인을 실행한다.
+
+    각 블로그의 RSS를 확인하여 신규 글을 감지하고,
+    본문 크롤링 -> AI 요약 -> 텔레그램 전송 파이프라인을 실행한다.
+
+    Args:
+        config: 설정 딕셔너리
+        blogs: 블로그 설정 리스트
+        anthropic_api_key: Anthropic API 키
+        telegram_bot_token: 텔레그램 봇 토큰
+        chat_id: 텔레그램 채팅방 ID
+        summarizer_model: Claude 모델명
+        summarizer_max_tokens: 최대 응답 토큰 수
+    """
+    processed_path = config.get("data", {}).get(
+        "processed_blogs", "data/processed_blogs.json"
+    )
+
+    for blog in blogs:
+        blog_id = blog.get("blog_id", "")
+        blog_name = blog.get("name", blog_id)
+
+        if not blog_id:
+            logger.warning("블로그 ID가 비어있음 - 건너뜀")
+            continue
+
+        logger.info(f"블로그 확인 중: {blog_name} ({blog_id})")
+
+        # 1단계: RSS로 최신 글 조회
+        posts = get_latest_posts(blog_id, max_results=10)
+        if not posts:
+            continue
+
+        # 2단계: 신규 글 필터링
+        new_posts = filter_new_posts(posts, processed_path)
+        if not new_posts:
+            continue
+
+        # 각 신규 글에 대해 파이프라인 실행
+        for post in new_posts:
+            post_id = post["post_id"]
+            title = post["title"]
+
+            try:
+                logger.info(f"블로그 글 처리 중: {title} ({post_id})")
+
+                # 3단계: 본문 크롤링
+                blog_text = get_blog_text(post["url"])
+                if not blog_text:
+                    logger.info(f"본문 추출 실패 - 건너뜀: {title}")
+                    mark_blog_processed(post_id, processed_path)
+                    continue
+
+                # 4단계: AI 요약 (source_type="blog")
+                summary = summarize(
+                    blog_text,
+                    anthropic_api_key,
+                    model=summarizer_model,
+                    max_tokens=summarizer_max_tokens,
+                    source_type="blog",
+                )
+                if not summary.get("summary"):
+                    logger.warning(f"요약 실패 - 건너뜀: {title}")
+                    continue
+
+                # 5단계: 텔레그램 전송
+                success = asyncio.run(
+                    send_blog_summary(
+                        telegram_bot_token, chat_id, post, summary
+                    )
+                )
+
+                if success:
+                    mark_blog_processed(post_id, processed_path)
+                else:
+                    logger.warning(f"텔레그램 전송 실패: {title}")
+
+            except Exception as e:
+                logger.error(f"블로그 글 처리 중 예외 발생 ({post_id}): {e}")
+                continue
 
 
 def main() -> None:

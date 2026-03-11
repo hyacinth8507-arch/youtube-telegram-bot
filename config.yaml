@@ -25,6 +25,13 @@ schedule:
 telegram:
   chat_id: -1003891906781
 
+# 네이버 블로그 모니터링 설정
+naver_blog:
+  enabled: true
+  blogs:
+    - blog_id: "ranto28"
+      name: "메르의 블로그"
+
 # 자막 설정
 transcript:
   preferred_languages:
@@ -44,3 +51,4 @@ logging:
 # 데이터 저장 경로
 data:
   processed_videos: "data/processed_videos.json"
+  processed_blogs: "data/processed_blogs.json"

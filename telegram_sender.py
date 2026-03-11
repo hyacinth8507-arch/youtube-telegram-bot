@@ -1,7 +1,8 @@
 """
 telegram_sender.py - 텔레그램 전송 모듈
 
-요약 결과 + 정리된 전체 스크립트를 포맷팅하여 Telegram Bot API로 전송한다.
+요약 결과 + 정리된 전체 내용을 포맷팅하여 Telegram Bot API로 전송한다.
+YouTube 영상과 네이버 블로그 두 가지 소스를 지원한다.
 메시지가 4096자를 초과하면 섹션 단위로 분할 전송한다.
 """
 
@@ -55,6 +56,101 @@ def format_footer(video_id: str) -> str:
     """메시지 하단부(원본 링크)를 생성한다."""
     url = f"https://www.youtube.com/watch?v={video_id}"
     return f'🔗 <a href="{url}">원본 보기</a>'
+
+
+def format_blog_header(post_info: dict, summary: dict) -> str:
+    """블로그용 메시지 상단부를 생성한다.
+
+    Args:
+        post_info: {"title", "blog_name", "url"}
+        summary: {"summary": str, "keywords": list[str]}
+
+    Returns:
+        HTML 포맷 헤더 문자열
+    """
+    title = post_info.get("title", "제목 없음")
+    blog_name = post_info.get("blog_name", "블로그")
+    summary_text = summary.get("summary", "요약 없음")
+    keywords = summary.get("keywords", [])
+
+    keyword_tags = " ".join(f"#{kw}" for kw in keywords) if keywords else ""
+
+    header = f"📝 <b>{_escape_html(title)}</b>\n"
+    header += f"✍️ {_escape_html(blog_name)}\n"
+
+    if keyword_tags:
+        header += f"🏷 키워드: {_escape_html(keyword_tags)}\n"
+
+    header += f"\n📌 <b>3줄 요약</b>\n"
+    header += f"{_escape_html(summary_text)}"
+
+    return header
+
+
+def format_blog_footer(url: str) -> str:
+    """블로그용 메시지 하단부(원문 링크)를 생성한다."""
+    return f'🔗 <a href="{url}">원문 보기</a>'
+
+
+def build_blog_messages(post_info: dict, summary: dict) -> list[str]:
+    """블로그 글 정보와 요약 결과를 텔레그램 메시지 리스트로 변환한다.
+
+    Args:
+        post_info: {"title", "blog_name", "blog_id", "url", "post_id"}
+        summary: {"summary", "keywords", "formatted_script"}
+
+    Returns:
+        전송할 메시지 문자열 리스트
+    """
+    url = post_info.get("url", "")
+    formatted_script = summary.get("formatted_script", "")
+
+    header = format_blog_header(post_info, summary)
+    footer = format_blog_footer(url)
+
+    # 전체 내용이 없으면 헤더 + 푸터만 전송
+    if not formatted_script:
+        return [f"{header}\n\n{footer}"]
+
+    # 단일 메시지 시도
+    full = f"{header}\n\n📄 <b>전체 내용</b>\n{formatted_script}\n\n{footer}"
+    if len(full) <= TELEGRAM_MAX_LENGTH:
+        return [full]
+
+    # === 분할 전송 ===
+    messages = []
+
+    first_msg = f"{header}\n\n📄 <b>전체 내용</b> (아래 계속)"
+    messages.append(first_msg)
+
+    sections = _split_by_sections(formatted_script)
+
+    current_chunk = ""
+    for section in sections:
+        test = f"{current_chunk}\n\n{section}" if current_chunk else section
+        if len(test) <= TELEGRAM_MAX_LENGTH:
+            current_chunk = test
+        else:
+            if current_chunk:
+                messages.append(current_chunk)
+            if len(section) > TELEGRAM_MAX_LENGTH:
+                sub_messages = _split_by_lines(section)
+                messages.extend(sub_messages)
+                current_chunk = ""
+            else:
+                current_chunk = section
+
+    if current_chunk:
+        test = f"{current_chunk}\n\n{footer}"
+        if len(test) <= TELEGRAM_MAX_LENGTH:
+            messages.append(test)
+        else:
+            messages.append(current_chunk)
+            messages.append(footer)
+    else:
+        messages.append(footer)
+
+    return messages
 
 
 def build_messages(video_info: dict, summary: dict) -> list[str]:
@@ -244,3 +340,37 @@ async def _send_single_message(
 
     logger.error(f"최대 재시도 횟수 초과 - 메시지 {idx}/{total} 전송 실패")
     return False
+
+
+async def send_blog_summary(
+    bot_token: str, chat_id: str, post_info: dict, summary: dict
+) -> bool:
+    """블로그 요약 결과를 텔레그램으로 전송한다.
+
+    Args:
+        bot_token: 텔레그램 봇 토큰
+        chat_id: 메시지를 보낼 채팅방 ID
+        post_info: 블로그 글 정보 딕셔너리
+        summary: 요약 결과 딕셔너리
+
+    Returns:
+        전송 성공 여부
+    """
+    messages = build_blog_messages(post_info, summary)
+    bot = telegram.Bot(token=bot_token)
+
+    post_id = post_info.get("post_id", "unknown")
+    logger.info(f"블로그 메시지 {len(messages)}개로 분할 전송 시작 (글: {post_id})")
+
+    for i, msg in enumerate(messages, 1):
+        success = await _send_single_message(bot, chat_id, msg, i, len(messages))
+        if not success:
+            return False
+        if len(messages) > 1 and i < len(messages):
+            time.sleep(0.5)
+
+    logger.info(
+        f"블로그 메시지 전송 성공 (chat_id: {chat_id}, "
+        f"글: {post_id}, {len(messages)}개 메시지)"
+    )
+    return True

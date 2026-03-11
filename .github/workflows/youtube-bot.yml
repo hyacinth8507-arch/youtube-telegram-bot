@@ -61,15 +61,15 @@ jobs:
           run_pipeline(config)
           "
 
-      # 6. processed_videos.json 변경 시 자동 커밋 + 푸시
-      - name: Commit and push processed_videos.json
+      # 6. 처리 데이터 변경 시 자동 커밋 + 푸시
+      - name: Commit and push processed data
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/processed_videos.json
+          git add data/processed_videos.json data/processed_blogs.json
           if git diff --cached --quiet; then
-            echo "No changes to processed_videos.json"
+            echo "No changes to processed data files"
           else
-            git commit -m "chore: update processed_videos.json [skip ci]"
+            git commit -m "chore: update processed data [skip ci]"
             git push
           fi
