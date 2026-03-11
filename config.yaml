@@ -28,6 +28,7 @@ telegram:
 # 네이버 블로그 모니터링 설정
 naver_blog:
   enabled: true
+  max_results: 5  # 블로그당 최신 글 조회 개수
   blogs:
     - blog_id: "ranto28"
       name: "메르의 블로그"

@@ -10,7 +10,8 @@ import logging
 import os
 import re
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from email.utils import parsedate_to_datetime
 
 import requests
 
@@ -205,18 +206,35 @@ def load_processed_blogs(processed_path: str) -> set[str]:
         return set()
 
 
-def filter_new_posts(posts: list[dict], processed_path: str) -> list[dict]:
+def filter_new_posts(
+    posts: list[dict], processed_path: str, max_age_hours: int = 1
+) -> list[dict]:
     """이미 처리된 글을 제외한 신규 글만 반환한다.
+
+    processed_blogs.json이 없는 첫 실행 시에는 최근 max_age_hours 이내에
+    발행된 글만 신규로 판정하여, 과거 글 대량 처리를 방지한다.
 
     Args:
         posts: 글 정보 딕셔너리 리스트
         processed_path: processed_blogs.json 파일 경로
+        max_age_hours: 첫 실행 시 신규로 판정할 최대 시간 (기본 1시간)
 
     Returns:
         신규 글 정보 리스트
     """
+    is_first_run = not os.path.exists(processed_path)
     processed = load_processed_blogs(processed_path)
     new_posts = [p for p in posts if p["post_id"] not in processed]
+
+    # 첫 실행 시 날짜 기반 필터링 적용
+    if is_first_run and new_posts:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+        before_count = len(new_posts)
+        new_posts = [p for p in new_posts if _is_recent(p, cutoff)]
+        logger.info(
+            f"첫 실행 - 최근 {max_age_hours}시간 이내 글만 처리: "
+            f"{before_count}개 -> {len(new_posts)}개"
+        )
 
     if new_posts:
         logger.info(f"신규 블로그 글 {len(new_posts)}개 발견")
@@ -224,6 +242,32 @@ def filter_new_posts(posts: list[dict], processed_path: str) -> list[dict]:
         logger.info("신규 블로그 글 없음")
 
     return new_posts
+
+
+def _is_recent(post: dict, cutoff: datetime) -> bool:
+    """글의 발행일이 cutoff 이후인지 확인한다.
+
+    Args:
+        post: 글 정보 딕셔너리 (published_at 포함)
+        cutoff: 기준 시각 (UTC)
+
+    Returns:
+        cutoff 이후 발행이면 True, 아니면 False.
+        발행일 파싱 실패 시 False 반환 (안전하게 건너뜀).
+    """
+    pub_str = post.get("published_at", "")
+    if not pub_str:
+        return False
+
+    try:
+        # RSS pubDate 형식: "Wed, 11 Mar 2026 07:38:25 +0900"
+        pub_dt = parsedate_to_datetime(pub_str)
+        # UTC로 변환하여 비교
+        pub_utc = pub_dt.astimezone(timezone.utc)
+        return pub_utc >= cutoff
+    except (ValueError, TypeError) as e:
+        logger.warning(f"발행일 파싱 실패 ({pub_str}): {e}")
+        return False
 
 
 def mark_as_processed(post_id: str, processed_path: str) -> None:

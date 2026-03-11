@@ -229,6 +229,7 @@ def _run_blog_pipeline(
     processed_path = config.get("data", {}).get(
         "processed_blogs", "data/processed_blogs.json"
     )
+    blog_max_results = config.get("naver_blog", {}).get("max_results", 5)
 
     for blog in blogs:
         blog_id = blog.get("blog_id", "")
@@ -241,7 +242,7 @@ def _run_blog_pipeline(
         logger.info(f"블로그 확인 중: {blog_name} ({blog_id})")
 
         # 1단계: RSS로 최신 글 조회
-        posts = get_latest_posts(blog_id, max_results=10)
+        posts = get_latest_posts(blog_id, max_results=blog_max_results)
         if not posts:
             continue
 
