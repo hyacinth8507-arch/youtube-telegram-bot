@@ -4,11 +4,17 @@
 youtube:
   channels:
     - id: "UCOB62fKRT7b73X7tRxMuN2g"
-      name: "경제전파사 김경필"
+      name: "박종훈의 지식한방"
     - id: "UCxvdCnvGODDyuvnELnLkQWw"
-      name: "효소아카데미"
+      name: "이효석아카데미"
     - id: "UCJNK93wrXOA6YP4uBZ5I4Rw"
       name: "J UTOPIA"
+    - id: "UCpqD9_OJNtF6suPpi6mOQCQ"
+      name: "월가아재의 과학적 투자"
+    - id: "UCt9m3iBPn0e0z0B_t-Va7sw"
+      name: "미키피디아"
+    - id: "UChY8VUjXv0aA7RF9hDQ0ISg"
+      name: "교양이를 부탁해"
   max_results: 5  # 채널당 최신 영상 조회 개수
 
 # 스케줄러 설정
@@ -17,7 +23,7 @@ schedule:
 
 # 텔레그램 설정
 telegram:
-  chat_id: 6221328867
+  chat_id: -1003891906781
 
 # 자막 설정
 transcript:
@@ -28,7 +34,7 @@ transcript:
 # 요약 설정
 summarizer:
   model: "claude-sonnet-4-20250514"
-  max_tokens: 1024
+  max_tokens: 16000  # 전체 스크립트 정리 포함으로 증가
 
 # 로깅 설정
 logging:

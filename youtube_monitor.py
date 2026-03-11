@@ -16,10 +16,30 @@ from googleapiclient.errors import HttpError
 logger = logging.getLogger(__name__)
 
 
+def _channel_to_uploads_playlist(channel_id: str) -> str:
+    """채널 ID를 업로드 재생목록 ID로 변환한다.
+
+    YouTube 채널의 업로드 재생목록은 채널 ID의 'UC' 접두사를 'UU'로 바꾸면 된다.
+    예: UCOB62fKRT7b73X7tRxMuN2g -> UUOB62fKRT7b73X7tRxMuN2g
+
+    Args:
+        channel_id: YouTube 채널 ID (UC로 시작)
+
+    Returns:
+        업로드 재생목록 ID (UU로 시작)
+    """
+    if channel_id.startswith("UC"):
+        return "UU" + channel_id[2:]
+    return channel_id
+
+
 def get_latest_videos(
     channel_id: str, api_key: str, max_results: int = 5
 ) -> list[dict]:
-    """채널의 최신 영상 목록을 YouTube Data API v3로 조회한다.
+    """채널의 최신 영상 목록을 playlistItems.list로 조회한다.
+
+    search.list(100 units/call) 대신 playlistItems.list(1 unit/call)를 사용하여
+    API 할당량을 100배 절약한다.
 
     Args:
         channel_id: YouTube 채널 ID (UC로 시작)
@@ -31,32 +51,35 @@ def get_latest_videos(
         [{"video_id", "title", "channel_name", "published_at"}, ...]
     """
     youtube = build("youtube", "v3", developerKey=api_key)
+    uploads_playlist = _channel_to_uploads_playlist(channel_id)
 
     try:
-        # 채널의 최신 영상 검색
-        search_response = (
-            youtube.search()
+        # 업로드 재생목록에서 최신 영상 조회 (1 unit/call)
+        response = (
+            youtube.playlistItems()
             .list(
-                channelId=channel_id,
+                playlistId=uploads_playlist,
                 part="snippet",
-                order="date",
                 maxResults=max_results,
-                type="video",
             )
             .execute()
         )
 
         videos = []
-        for item in search_response.get("items", []):
+        for item in response.get("items", []):
+            snippet = item["snippet"]
+            video_id = snippet.get("resourceId", {}).get("videoId", "")
+            if not video_id:
+                continue
             video = {
-                "video_id": item["id"]["videoId"],
-                "title": item["snippet"]["title"],
-                "channel_name": item["snippet"]["channelTitle"],
-                "published_at": item["snippet"]["publishedAt"],
+                "video_id": video_id,
+                "title": snippet.get("title", ""),
+                "channel_name": snippet.get("channelTitle", ""),
+                "published_at": snippet.get("publishedAt", ""),
             }
             videos.append(video)
 
-        logger.info(f"채널 {channel_id}에서 영상 {len(videos)}개 조회 완료")
+        logger.info(f"채널 {channel_id}에서 영상 {len(videos)}개 조회 완료 (1 unit)")
         return videos
 
     except HttpError as e:
