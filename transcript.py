@@ -7,9 +7,11 @@ RequestBlocked 발생 시 30~60초 간격으로 최대 3회 재시도한다.
 """
 
 import logging
+import os
 import time
 
 from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api.proxies import GenericProxyConfig
 from youtube_transcript_api._errors import (
     NoTranscriptFound,
     TranscriptsDisabled,
@@ -80,7 +82,13 @@ def _fetch_transcript(
     global _last_was_blocked
     _last_was_blocked = False
 
-    api = YouTubeTranscriptApi()
+    proxy_url = os.getenv("PROXY_URL")
+    if proxy_url:
+        proxy = GenericProxyConfig(https_url=proxy_url)
+        api = YouTubeTranscriptApi(proxy_config=proxy)
+        logger.debug(f"프록시 사용: {proxy_url[:20]}...")
+    else:
+        api = YouTubeTranscriptApi()
 
     try:
         fetched = api.fetch(video_id, languages=preferred_langs)
