@@ -26,7 +26,13 @@ from naver_scraper import get_blog_text
 from summarizer import summarize
 from telegram_sender import send_blog_summary, send_summary
 from transcript import get_transcript
-from youtube_monitor import filter_new_videos, get_latest_videos, mark_as_processed
+from youtube_monitor import (
+    clear_retry,
+    filter_new_videos,
+    get_latest_videos,
+    increment_retry,
+    mark_as_processed,
+)
 
 logger = logging.getLogger("main")
 
@@ -156,9 +162,20 @@ def run_pipeline(config: dict) -> None:
                 # 3단계: 자막 추출
                 transcript_text = get_transcript(video_id, preferred_langs)
                 if not transcript_text:
-                    logger.info(f"자막 없음 - 건너뜀: {title}")
-                    # 자막 없는 영상도 처리 완료로 기록 (반복 시도 방지)
-                    mark_as_processed(video_id, processed_path)
+                    # 자막 실패 시 재시도 카운터 증가 (5회까지 재시도)
+                    max_retries = 5
+                    retry_count = increment_retry(video_id, processed_path)
+                    if retry_count >= max_retries:
+                        logger.warning(
+                            f"자막 {max_retries}회 실패 - 포기: {title}"
+                        )
+                        mark_as_processed(video_id, processed_path)
+                        clear_retry(video_id, processed_path)
+                    else:
+                        logger.info(
+                            f"자막 없음 ({retry_count}/{max_retries}회) "
+                            f"- 다음 실행에서 재시도: {title}"
+                        )
                     continue
 
                 # 4단계: AI 요약
@@ -178,8 +195,9 @@ def run_pipeline(config: dict) -> None:
                 )
 
                 if success:
-                    # 전송 성공 시 처리 완료로 기록
+                    # 전송 성공 시 처리 완료로 기록 + 재시도 카운터 정리
                     mark_as_processed(video_id, processed_path)
+                    clear_retry(video_id, processed_path)
                 else:
                     logger.warning(f"텔레그램 전송 실패: {title}")
 

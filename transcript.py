@@ -59,7 +59,7 @@ def get_transcript(
         logger.warning(f"영상 {video_id}을 사용할 수 없음 - 건너뜀")
         return None
     except Exception as e:
-        logger.error(f"영상 {video_id} 자막 추출 중 예외 발생: {e}")
+        logger.error(f"영상 {video_id} 자막 추출 중 예외 발생: {repr(e)}")
         return None
 
 

@@ -93,6 +93,86 @@ def get_latest_videos(
         return []
 
 
+def load_retry_counts(processed_path: str) -> dict[str, int]:
+    """자막 추출 재시도 카운터를 로드한다.
+
+    processed_videos.json의 "retry_counts" 필드에서
+    {video_id: 시도 횟수} 딕셔너리를 반환한다.
+
+    Args:
+        processed_path: processed_videos.json 파일 경로
+
+    Returns:
+        {video_id: retry_count} 딕셔너리
+    """
+    if not os.path.exists(processed_path):
+        return {}
+
+    try:
+        with open(processed_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("retry_counts", {})
+    except (json.JSONDecodeError, KeyError):
+        return {}
+
+
+def increment_retry(video_id: str, processed_path: str) -> int:
+    """자막 추출 재시도 카운터를 1 증가시킨다.
+
+    Args:
+        video_id: 영상 ID
+        processed_path: processed_videos.json 파일 경로
+
+    Returns:
+        증가 후의 재시도 횟수
+    """
+    # 기존 데이터 로드
+    data = {"processed": [], "last_updated": "", "retry_counts": {}}
+    if os.path.exists(processed_path):
+        try:
+            with open(processed_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    retry_counts = data.get("retry_counts", {})
+    retry_counts[video_id] = retry_counts.get(video_id, 0) + 1
+    data["retry_counts"] = retry_counts
+    data["last_updated"] = datetime.now(timezone.utc).isoformat()
+
+    os.makedirs(os.path.dirname(processed_path) or ".", exist_ok=True)
+    with open(processed_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+    count = retry_counts[video_id]
+    logger.info(f"영상 {video_id} 자막 재시도 {count}회차 기록")
+    return count
+
+
+def clear_retry(video_id: str, processed_path: str) -> None:
+    """처리 완료된 영상의 재시도 카운터를 삭제한다.
+
+    Args:
+        video_id: 영상 ID
+        processed_path: processed_videos.json 파일 경로
+    """
+    if not os.path.exists(processed_path):
+        return
+
+    try:
+        with open(processed_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, KeyError):
+        return
+
+    retry_counts = data.get("retry_counts", {})
+    if video_id in retry_counts:
+        del retry_counts[video_id]
+        data["retry_counts"] = retry_counts
+        with open(processed_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+
 def load_processed_videos(processed_path: str) -> set[str]:
     """처리된 영상 ID 집합을 JSON 파일에서 로드한다.
 
