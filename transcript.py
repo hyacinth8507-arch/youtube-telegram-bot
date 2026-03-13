@@ -3,9 +3,11 @@ transcript.py -- YouTube 자막 추출 모듈
 
 youtube-transcript-api를 사용하여 영상의 자막을 추출한다.
 한국어(ko) 자막을 우선 시도하고, 없으면 영어(en) 자막을 추출한다.
+RequestBlocked 발생 시 30~60초 간격으로 최대 3회 재시도한다.
 """
 
 import logging
+import time
 
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import (
@@ -16,6 +18,10 @@ from youtube_transcript_api._errors import (
 
 logger = logging.getLogger(__name__)
 
+# RequestBlocked 재시도 설정
+_BLOCKED_MAX_RETRIES = 3
+_BLOCKED_RETRY_DELAYS = [30, 45, 60]  # 각 재시도 전 대기 시간(초)
+
 
 def get_transcript(
     video_id: str, preferred_langs: list[str] | None = None
@@ -23,6 +29,7 @@ def get_transcript(
     """영상의 자막 텍스트를 추출한다.
 
     선호 언어 순서대로 자막을 시도하며, 모두 실패하면 None을 반환한다.
+    RequestBlocked 발생 시 30~60초 간격으로 최대 3회 재시도한다.
 
     Args:
         video_id: YouTube 영상 ID
@@ -34,11 +41,48 @@ def get_transcript(
     if preferred_langs is None:
         preferred_langs = ["ko", "en"]
 
-    # youtube-transcript-api v1.x: 인스턴스 생성 필요
+    for attempt in range(_BLOCKED_MAX_RETRIES):
+        result = _fetch_transcript(video_id, preferred_langs)
+
+        if result is not None:
+            return result
+        if result is None and not _last_was_blocked:
+            # RequestBlocked가 아닌 다른 이유로 실패 → 재시도 무의미
+            return None
+
+        # RequestBlocked → 대기 후 재시도
+        if attempt < _BLOCKED_MAX_RETRIES - 1:
+            delay = _BLOCKED_RETRY_DELAYS[attempt]
+            logger.info(
+                f"RequestBlocked - {delay}초 대기 후 재시도 "
+                f"({attempt + 1}/{_BLOCKED_MAX_RETRIES}): {video_id}"
+            )
+            time.sleep(delay)
+
+    logger.warning(
+        f"영상 {video_id} RequestBlocked {_BLOCKED_MAX_RETRIES}회 연속 실패"
+    )
+    return None
+
+
+# 마지막 실패가 RequestBlocked였는지 추적하는 플래그
+_last_was_blocked = False
+
+
+def _fetch_transcript(
+    video_id: str, preferred_langs: list[str]
+) -> str | None:
+    """자막 추출을 1회 시도한다.
+
+    성공 시 텍스트, 실패 시 None을 반환한다.
+    _last_was_blocked 플래그로 RequestBlocked 여부를 알린다.
+    """
+    global _last_was_blocked
+    _last_was_blocked = False
+
     api = YouTubeTranscriptApi()
 
     try:
-        # fetch()는 languages 순서대로 자막을 탐색한다
         fetched = api.fetch(video_id, languages=preferred_langs)
         text = format_transcript(fetched)
         lang = fetched.language_code
@@ -59,7 +103,12 @@ def get_transcript(
         logger.warning(f"영상 {video_id}을 사용할 수 없음 - 건너뜀")
         return None
     except Exception as e:
-        logger.error(f"영상 {video_id} 자막 추출 중 예외 발생: {repr(e)}")
+        error_name = type(e).__name__
+        if "Blocked" in error_name or "blocked" in str(e).lower():
+            _last_was_blocked = True
+            logger.warning(f"영상 {video_id} 요청 차단됨: {repr(e)}")
+        else:
+            logger.error(f"영상 {video_id} 자막 추출 중 예외 발생: {repr(e)}")
         return None
 
 
