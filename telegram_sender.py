@@ -58,6 +58,27 @@ def format_footer(video_id: str) -> str:
     return f'🔗 <a href="{url}">원본 보기</a>'
 
 
+def build_notification_message(video_info: dict) -> str:
+    """자막/요약 없이 신규 영상 알림 메시지를 생성한다.
+
+    Args:
+        video_info: {"title", "channel_name", "video_id"}
+
+    Returns:
+        HTML 포맷 알림 메시지
+    """
+    title = video_info.get("title", "제목 없음")
+    channel = video_info.get("channel_name", "채널 없음")
+    video_id = video_info.get("video_id", "")
+    url = f"https://www.youtube.com/watch?v={video_id}"
+
+    msg = f"🎬 <b>{_escape_html(title)}</b>\n"
+    msg += f"📺 {_escape_html(channel)}\n\n"
+    msg += f"⚠️ 자막을 추출할 수 없어 요약이 제공되지 않습니다.\n\n"
+    msg += f'🔗 <a href="{url}">영상 보기</a>'
+    return msg
+
+
 def format_blog_header(post_info: dict, summary: dict) -> str:
     """블로그용 메시지 상단부를 생성한다.
 
@@ -296,6 +317,31 @@ async def send_summary(
         f"영상: {video_id}, {len(messages)}개 메시지)"
     )
     return True
+
+
+async def send_notification(
+    bot_token: str, chat_id: str, video_info: dict
+) -> bool:
+    """자막/요약 없이 신규 영상 알림만 텔레그램으로 전송한다.
+
+    Args:
+        bot_token: 텔레그램 봇 토큰
+        chat_id: 메시지를 보낼 채팅방 ID
+        video_info: 영상 정보 딕셔너리
+
+    Returns:
+        전송 성공 여부
+    """
+    msg = build_notification_message(video_info)
+    bot = telegram.Bot(token=bot_token)
+
+    video_id = video_info.get("video_id", "unknown")
+    logger.info(f"알림 메시지 전송 시작 (영상: {video_id})")
+
+    success = await _send_single_message(bot, chat_id, msg, 1, 1)
+    if success:
+        logger.info(f"알림 전송 성공 (chat_id: {chat_id}, 영상: {video_id})")
+    return success
 
 
 async def _send_single_message(
