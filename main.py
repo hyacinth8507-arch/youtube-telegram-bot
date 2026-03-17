@@ -162,8 +162,8 @@ def run_pipeline(config: dict) -> None:
                 # 3단계: 자막 추출
                 transcript_text = get_transcript(video_id, preferred_langs)
                 if not transcript_text:
-                    # 자막 실패 시 재시도 카운터 증가 (5회까지 재시도)
-                    max_retries = 5
+                    # 자막 실패 시 재시도 카운터 증가 (2회까지 재시도)
+                    max_retries = 2
                     retry_count = increment_retry(video_id, processed_path)
                     if retry_count >= max_retries:
                         logger.warning(
