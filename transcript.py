@@ -171,12 +171,14 @@ def _fetch_transcript_ytdlp(
             cmd.extend(["--proxy", proxy_url])
 
         try:
-            subprocess.run(
+            proc = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 timeout=120,
             )
+            if proc.returncode != 0 and proc.stderr:
+                logger.debug(f"yt-dlp stderr: {proc.stderr[:500]}")
 
             # 다운로드된 자막 파일 찾기 (선호 언어 순서대로)
             for lang in preferred_langs:
