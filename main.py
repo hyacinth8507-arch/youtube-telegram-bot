@@ -24,7 +24,7 @@ from naver_monitor import (
 )
 from naver_scraper import get_blog_text
 from summarizer import summarize
-from telegram_sender import send_blog_summary, send_summary
+from telegram_sender import send_blog_summary, send_notification, send_summary
 from transcript import get_transcript
 from youtube_monitor import (
     clear_retry,
@@ -167,8 +167,18 @@ def run_pipeline(config: dict) -> None:
                     retry_count = increment_retry(video_id, processed_path)
                     if retry_count >= max_retries:
                         logger.warning(
-                            f"자막 {max_retries}회 실패 - 포기: {title}"
+                            f"자막 {max_retries}회 실패 - 알림만 전송: {title}"
                         )
+                        # 요약 없이 알림만 전송
+                        notified = asyncio.run(
+                            send_notification(
+                                telegram_bot_token, chat_id, video
+                            )
+                        )
+                        if notified:
+                            logger.info(f"알림 전송 성공: {title}")
+                        else:
+                            logger.warning(f"알림 전송도 실패: {title}")
                         mark_as_processed(video_id, processed_path)
                         clear_retry(video_id, processed_path)
                     else:
