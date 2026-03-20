@@ -32,6 +32,8 @@ naver_blog:
   blogs:
     - blog_id: "ranto28"
       name: "메르의 블로그"
+    - blog_id: "kk_kontemp"
+      name: "KK"
 
 # 자막 설정
 transcript:
